@@ -1,13 +1,16 @@
 import typing
 import os
+import sam2.sam2_image_predictor
 import tqdm
 import requests
 import torch
+import numpy
 
 import sam2.build_sam
 import sam2.automatic_mask_generator
 
-import cv2 
+import PIL
+import cv2
 
 SAM2_MODELS = {
     "sam2_hiera_tiny": {
@@ -61,6 +64,7 @@ class SegmentAnything2Assist:
       print(f"SegmentAnything2Assist::__init__::Configuration: {self.configuration}")
       print(f"SegmentAnything2Assist::__init__::Download URL: {self.download_url}")
       print(f"SegmentAnything2Assist::__init__::Default Path: {self.model_path}")
+      print(f"SegmentAnything2Assist::__init__::Configuration File: {self.config_file}")
 
     if download:
       self.download_model()
@@ -112,12 +116,68 @@ class SegmentAnything2Assist:
     print("Generating Masks")
     masks = agg.generate(image)
     print(masks)
+  
+  def generate_masks_from_image(
+    self,
+    image,
+    point_coords,
+    point_labels,
+    box,
+    mask_threshold = 0.5
+  ):
+    print(point_coords)
+    print(point_labels)
+    print(box)
+    generator = sam2.sam2_image_predictor.SAM2ImagePredictor(
+      self.sam2,
+      mask_threshold = mask_threshold
+    )
+    generator.set_image(image)
+    
+    masks_chw, mask_iou, mask_low_logits = generator.predict(
+      point_coords = numpy.array(point_coords) if point_coords is not None else None,
+      point_labels = numpy.array(point_labels) if point_labels is not None else None,
+      box = numpy.array(box) if box is not None else None,
+      multimask_output = True
+    )
+    
+    return masks_chw, mask_iou
+  
+  def apply_mask_to_image(
+    self,
+    image,
+    mask
+  ):
+    mask = numpy.array(mask)
+    mask = numpy.where(mask > 0, 255, 0).astype(numpy.uint8)
+    print(f"{type(image)} {image.shape} {image}")
+    print(f"{type(mask)} {mask.shape} {mask}")
+    return mask
 
-image = cv2.imread("xd.jpg", cv2.IMREAD_UNCHANGED)
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+image = PIL.Image.open('assets/truck.jpg')
+image = numpy.array(image.convert("RGB"))
+
+#image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 #image = cv2.resize(image, dsize = None, fx = 0.15, fy = 0.15)
-print(image.shape)
-cv2.imshow("Image", image)
+# print(image.shape)
+# cv2.imshow("Image", image)
+point_coords = [[500, 375], [1125, 625]]
+point_labels = [1, 1]
+box = None
 
-sgm = SegmentAnything2Assist(model_name = "sam2_hiera_small")
-sgm.generate_automatic_masks(image)
+# point_coords = [[886, 551], [1239, 576], [610, 574]]
+# point_labels = [1, 0, 0]
+# box = None
+# box = [331, 597, 1347, 1047]
+# point_coords = None
+# point_labels = None
+# box = [1330, 242, 2250, 1419]
+sgm = SegmentAnything2Assist(model_name = "sam2_hiera_tiny")
+masks = sgm.generate_masks_from_image(image, point_coords, point_labels, box, 0)
+for _, m in enumerate(masks[0]):
+  
+  print(masks[1][_])
+  cv2.imshow("Mask", m)
+  cv2.waitKey(0)
+# sgm.generate_automatic_masks(image)
+# [1330, 242, 2250, 1419]
